@@ -4,23 +4,22 @@ pragma solidity ^0.8.23;
 /* solhint-disable not-rely-on-time */
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IPeripheryPayments.sol";
+
+struct UniswapHelperConfig {
+    /// @notice Minimum native asset amount to receive from a single swap
+    uint256 minSwapAmount;
+    uint24 uniswapPoolFee;
+    uint8 slippage;
+}
 
 abstract contract UniswapHelper {
     event UniswapReverted(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin);
 
     uint256 private constant PRICE_DENOMINATOR = 1e26;
-
-    struct UniswapHelperConfig {
-        /// @notice Minimum native asset amount to receive from a single swap
-        uint256 minSwapAmount;
-
-        uint24 uniswapPoolFee;
-
-        uint8 slippage;
-    }
 
     /// @notice The Uniswap V3 SwapRouter contract
     ISwapRouter public immutable uniswap;
@@ -31,16 +30,20 @@ abstract contract UniswapHelper {
     /// @notice The ERC-20 token that wraps the native asset for current chain
     IERC20 public immutable wrappedNative;
 
-    UniswapHelperConfig private uniswapHelperConfig;
+    UniswapHelperConfig public uniswapHelperConfig;
+
+    uint8 public immutable tokenDecimals;
+    uint8 public constant wethDecimals = 18;
 
     constructor(
         IERC20 _token,
         IERC20 _wrappedNative,
         ISwapRouter _uniswap,
         UniswapHelperConfig memory _uniswapHelperConfig
-    ){
+    ) {
         _token.approve(address(_uniswap), type(uint256).max);
         token = _token;
+        tokenDecimals = IERC20Metadata(address(_token)).decimals();
         wrappedNative = _wrappedNative;
         uniswap = _uniswap;
         _setUniswapHelperConfiguration(_uniswapHelperConfig);
@@ -58,11 +61,7 @@ abstract contract UniswapHelper {
         }
         // note: calling 'swapToToken' but destination token is Wrapped Ether
         return swapToToken(
-            address(tokenIn),
-            address(wrappedNative),
-            tokenBalance,
-            amountOutMin,
-            uniswapHelperConfig.uniswapPoolFee
+            address(tokenIn), address(wrappedNative), tokenBalance, amountOutMin, uniswapHelperConfig.uniswapPoolFee
         );
     }
 
@@ -70,13 +69,16 @@ abstract contract UniswapHelper {
         return amount * (1000 - slippage) / 1000;
     }
 
-
-    function tokenToWei(uint256 amount, uint256 price) public pure returns (uint256) {
-        return amount * price / PRICE_DENOMINATOR;
+    function tokenToWei(uint256 amount, uint256 price) public view returns (uint256) {
+        uint256 weiAmount = amount * price / PRICE_DENOMINATOR;
+        weiAmount = weiAmount * (10 ** (18 - tokenDecimals));
+        return weiAmount;
     }
 
-    function weiToToken(uint256 amount, uint256 price) public pure returns (uint256) {
-        return amount * PRICE_DENOMINATOR / price;
+    function weiToToken(uint256 amount, uint256 price) public view returns (uint256) {
+        uint256 tokenAmount = amount * PRICE_DENOMINATOR / price;
+        tokenAmount = tokenAmount / (10 ** (18 - tokenDecimals));
+        return tokenAmount;
     }
 
     function unwrapWeth(uint256 amount) internal {
@@ -84,13 +86,10 @@ abstract contract UniswapHelper {
     }
 
     // swap ERC-20 tokens at market price
-    function swapToToken(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOutMin,
-        uint24 fee
-    ) internal returns (uint256 amountOut) {
+    function swapToToken(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, uint24 fee)
+        internal
+        returns (uint256 amountOut)
+    {
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams(
             tokenIn, //tokenIn
             tokenOut, //tokenOut

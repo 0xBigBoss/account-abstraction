@@ -248,6 +248,8 @@ describe('TokenPaymaster', function () {
     assert.equal(decodedLogs.length, 5)
     assert.equal(decodedLogs[4].args.success, true)
     assert.equal(actualTokenChargeEvents.toString(), actualTokenCharge.toString())
+    console.log('actualTokenChargeEvents=', actualTokenChargeEvents.toString())
+    console.log('expectedTokenCharge=', expectedTokenCharge.toString())
     assert.equal(actualTokenChargeEvents.toString(), expectedTokenCharge.toString())
     assert.equal(actualTokenPriceWithMarkup.toString(), expectedTokenPriceWithMarkup.toString())
     assert.closeTo(postOpGasCost.div(tx.effectiveGasPrice).toNumber(), 50000, 20000)
